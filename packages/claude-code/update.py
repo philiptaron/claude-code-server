@@ -32,7 +32,7 @@ PLATFORMS = {
     "aarch64-linux": "linux-arm64",
     "aarch64-darwin": "darwin-arm64",
 }
-VERSION = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
+VERSION = re.compile(r"([0-9]+)\.([0-9]+)\.([0-9]+)")
 USER_AGENT = "claude-code-server-updater"
 
 
@@ -43,7 +43,7 @@ def fetch(url):
 
 
 def key(version):
-    return tuple(int(n) for n in VERSION.match(version).groups())
+    return tuple(int(n) for n in VERSION.fullmatch(version).groups())
 
 
 def sri(hex_digest):
@@ -84,10 +84,10 @@ def main():
     old = json.loads(args.versions_json.read_text()) if args.versions_json.exists() else {}
 
     latest = fetch(f"{RELEASES}/latest").decode().strip()
-    if not VERSION.match(latest):
+    if not VERSION.fullmatch(latest):
         raise ValueError(f"latest is not a version: {latest!r}")
     published = json.loads(fetch(NPM))["versions"].keys()
-    candidates = {v for v in published if VERSION.match(v)} | set(old) | {latest}
+    candidates = {v for v in published if VERSION.fullmatch(v)} | set(old) | {latest}
     candidates = sorted((v for v in candidates if key(v) <= key(latest)), key=key, reverse=True)
 
     new = {}
