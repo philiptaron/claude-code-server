@@ -110,6 +110,9 @@ fn run(args: Args) -> io::Result<()> {
     Ok(())
 }
 
+/// How long the main thread gets to finish after the unmount on a signal.
+const UNMOUNT_GRACE: Duration = Duration::from_secs(2);
+
 const SIGNALS: [libc::c_int; 3] = [libc::SIGTERM, libc::SIGINT, libc::SIGHUP];
 
 fn block_signals() -> io::Result<libc::sigset_t> {
@@ -129,7 +132,7 @@ fn block_signals() -> io::Result<libc::sigset_t> {
 }
 
 /// Wait for a termination signal, then unmount, which ends `fuser::mount` in the main
-/// thread. Unmounting needs `fusermount3`, found the way fuser finds it for mounting.
+/// thread, and with it the process. Unmounting needs `fusermount3`, found the way fuser finds it for mounting.
 fn unmount_on_signal(signals: libc::sigset_t, mountpoint: PathBuf) {
     let mut signal = 0;
     // SAFETY: the set was initialized by block_signals, and sigwait writes only `signal`.
@@ -146,6 +149,12 @@ fn unmount_on_signal(signals: libc::sigset_t, mountpoint: PathBuf) {
         error!("could not unmount {} with {fusermount:?}", mountpoint.display());
         std::process::exit(1);
     }
+    // The unmount is lazy: while something holds the mount busy (a working directory in
+    // it, say) the kernel keeps the session open and `fuser::mount` does not return. The
+    // mount point is detached already, so do not wait on that for long.
+    thread::sleep(UNMOUNT_GRACE);
+    warn!("the mount is still busy, exiting anyway");
+    std::process::exit(0);
 }
 
 #[cfg(test)]
