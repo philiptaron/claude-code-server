@@ -30,8 +30,8 @@
       eachSystem = systems: f: lib.genAttrs systems (system: f (pkgsFor system));
     in
     {
-      # claude-code-versions."2.1.322" and so on, and ccd-cli-fs. Claude Code is unfree, so
-      # the nixpkgs this is applied to must allow it.
+      # claude-code-versions."2.1.322" and so on, ccd-cli-fs, and ccd-cli-fs-builder. Claude
+      # Code is unfree, so the nixpkgs this is applied to must allow it.
       overlays.default = final: prev: {
         claude-code-versions = lib.mapAttrs (
           version: hashes:
@@ -41,6 +41,11 @@
           }
         ) versions;
         ccd-cli-fs = final.callPackage ./packages/ccd-cli-fs.nix { };
+        # Builds with this flake's nixpkgs, which `follows` can make the consumer's. Not
+        # final.path: interpolating that copies all of nixpkgs into the store again.
+        ccd-cli-fs-builder = final.callPackage ./packages/ccd-cli-fs-builder.nix {
+          nixpkgsPath = nixpkgs.outPath;
+        };
       };
 
       packages = eachSystem systems (
@@ -50,7 +55,7 @@
           claude-code = pkgs.claude-code-versions.${newest};
         }
         // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
-          inherit (pkgs) ccd-cli-fs;
+          inherit (pkgs) ccd-cli-fs ccd-cli-fs-builder;
           default = pkgs.ccd-cli-fs;
         }
       );
