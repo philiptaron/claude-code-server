@@ -4,6 +4,9 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # Let a release sit for a week first, in case it is pulled.
+    cooldown:
+      default-days: 7
     groups:
       cargo:
         patterns: ["*"]
@@ -12,9 +15,15 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # Let a release sit for a week first, in case it is pulled.
+    cooldown:
+      default-days: 7
 
   # flake.lock's nixpkgs input
   - package-ecosystem: nix
     directory: /
     schedule:
       interval: weekly
+    # Let a release sit for a week first, in case it is pulled.
+    cooldown:
+      default-days: 7
