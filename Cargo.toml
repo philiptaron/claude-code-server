@@ -1,0 +1,14 @@
+[package]
+name = "ccd-cli-fs"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+description = "FUSE filesystem that serves Nix-built Claude Code CLIs to the Claude desktop app's SSH remote"
+
+[dependencies]
+clap = { version = "4.6.7", features = ["derive"] }
+env_logger = "0.11.11"
+fuser = "0.18.0"
+libc = "0.2.191"
+log = "0.4.35"
