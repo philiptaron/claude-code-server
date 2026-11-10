@@ -67,6 +67,11 @@
 
       nixosModules.default = import ./nixos/module.nix { inherit self; };
 
+      checks = eachSystem linuxSystems (pkgs: {
+        inherit (pkgs) ccd-cli-fs ccd-cli-fs-builder;
+        module = import ./nixos/test.nix { inherit self pkgs; };
+      });
+
       devShells = eachSystem linuxSystems (pkgs: {
         default = pkgs.mkShell {
           inputsFrom = [ pkgs.ccd-cli-fs ];
