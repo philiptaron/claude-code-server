@@ -43,7 +43,8 @@ struct Args {
     #[arg(long, value_name = "BUILDER", requires = "versions_dir")]
     builder: Option<PathBuf>,
 
-    /// How long to wait before building a version again after its build failed
+    /// How long to wait before building a version again after its build finished, whether
+    /// it failed or left nothing that can be served
     #[arg(long, value_name = "SECONDS", default_value_t = 600)]
     retry_after: u64,
 }

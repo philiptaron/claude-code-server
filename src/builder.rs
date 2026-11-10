@@ -19,7 +19,11 @@ use log::{info, warn};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum State {
     Running,
-    Failed(Instant),
+    /// Finished at this time, successfully or not.
+    Finished {
+        at: Instant,
+        succeeded: bool,
+    },
 }
 
 pub struct Builder {
@@ -33,14 +37,18 @@ impl Builder {
         Builder { command, retry_after, builds: Arc::default() }
     }
 
-    /// Start a build of `version` unless one is running, or one failed less than
-    /// `retry_after` ago. Returns whether a build was started.
+    /// Start a build of `version` unless one is running, or one finished less than
+    /// `retry_after` ago. That holds for a build that succeeded too: a request after it
+    /// means it left nothing the catalog can serve, and building again at once would run
+    /// the builder on every lookup. Returns whether a build was started.
     pub fn request(&self, version: &str) -> bool {
         {
             let mut builds = self.builds.lock().unwrap();
             match builds.get(version) {
                 Some(State::Running) => return false,
-                Some(State::Failed(at)) if at.elapsed() < self.retry_after => return false,
+                Some(State::Finished { at, .. }) if at.elapsed() < self.retry_after => {
+                    return false;
+                }
                 _ => {}
             }
             builds.insert(version.to_owned(), State::Running);
@@ -64,15 +72,17 @@ impl Builder {
             match status {
                 Ok(status) if status.success() => {
                     info!("built {version}");
-                    builds.remove(&version);
+                    builds.insert(version, State::Finished { at: Instant::now(), succeeded: true });
                 }
                 Ok(status) => {
                     warn!("building {version} failed: {status}");
-                    builds.insert(version, State::Failed(Instant::now()));
+                    builds
+                        .insert(version, State::Finished { at: Instant::now(), succeeded: false });
                 }
                 Err(error) => {
                     warn!("could not run {}: {error}", command.display());
-                    builds.insert(version, State::Failed(Instant::now()));
+                    builds
+                        .insert(version, State::Finished { at: Instant::now(), succeeded: false });
                 }
             }
         });
@@ -114,25 +124,39 @@ mod tests {
         panic!("build of {version} never finished");
     }
 
+    fn succeeded(state: Option<State>) -> bool {
+        matches!(state, Some(State::Finished { succeeded: true, .. }))
+    }
+
+    fn failed(state: Option<State>) -> bool {
+        matches!(state, Some(State::Finished { succeeded: false, .. }))
+    }
+
     #[test]
-    fn success_clears_state() {
+    fn success_backs_off() {
         let builder = Builder::new("true".into(), Duration::from_secs(600));
         assert!(builder.request("1.2.3"));
-        assert_eq!(wait_until_settled(&builder, "1.2.3"), None);
-        assert!(builder.request("1.2.3"));
+        assert!(succeeded(wait_until_settled(&builder, "1.2.3")));
+        // asked again, so the build left nothing usable: not built again at once
+        assert!(!builder.request("1.2.3"));
+
+        let impatient = Builder::new("true".into(), Duration::ZERO);
+        assert!(impatient.request("1.2.3"));
+        assert!(succeeded(wait_until_settled(&impatient, "1.2.3")));
+        assert!(impatient.request("1.2.3"));
     }
 
     #[test]
     fn failure_backs_off() {
         let builder = Builder::new("false".into(), Duration::from_secs(600));
         assert!(builder.request("1.2.3"));
-        assert!(matches!(wait_until_settled(&builder, "1.2.3"), Some(State::Failed(_))));
+        assert!(failed(wait_until_settled(&builder, "1.2.3")));
         assert!(!builder.request("1.2.3"));
         assert!(builder.request("1.2.4"));
 
         let impatient = Builder::new("/nonexistent/builder".into(), Duration::ZERO);
         assert!(impatient.request("1.2.3"));
-        assert!(matches!(wait_until_settled(&impatient, "1.2.3"), Some(State::Failed(_))));
+        assert!(failed(wait_until_settled(&impatient, "1.2.3")));
         assert!(impatient.request("1.2.3"));
     }
 
@@ -145,7 +169,7 @@ mod tests {
         let builder = Builder::new(script.clone(), Duration::ZERO);
         assert!(builder.request("1.2.3"));
         assert!(!builder.request("1.2.3"));
-        assert_eq!(wait_until_settled(&builder, "1.2.3"), None);
+        assert!(succeeded(wait_until_settled(&builder, "1.2.3")));
         std::fs::remove_file(script).unwrap();
     }
 
@@ -166,7 +190,7 @@ mod tests {
         let builder = Builder::new("sh".into(), Duration::from_secs(600));
         let script_name = script.to_str().unwrap();
         assert!(builder.request(script_name));
-        assert_eq!(wait_until_settled(&builder, script_name), None);
+        assert!(succeeded(wait_until_settled(&builder, script_name)));
         std::fs::remove_file(script).unwrap();
     }
 }

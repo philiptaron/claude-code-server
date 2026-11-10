@@ -47,8 +47,8 @@ Builds come from two places:
 
 `ccd-cli-fs-builder VERSION` gets the hash from `versions.json`. For a version newer than
 the flake, which is common because the app tends to be newer than your lock file, it gets
-the hash from the release's `manifest.json` on downloads.claude.ai. A failed build is not
-retried for 10 minutes.
+the hash from the release's `manifest.json` on downloads.claude.ai. A build that failed, or
+that left nothing servable, is not retried for 10 minutes.
 
 ## Use on NixOS
 
