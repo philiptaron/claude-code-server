@@ -1,0 +1,58 @@
+name: Update Claude Code
+
+# Anthropic's releases cannot trigger a workflow here: release events and webhooks only
+# reach the repository's owner, so this polls downloads.claude.ai instead.
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: update-claude-code
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: cachix/install-nix-action@v31
+      - name: Update versions.json
+        id: update
+        run: |
+          set -euo pipefail
+          changes=$(nix shell --inputs-from . nixpkgs#python3 --command \
+            python3 -I packages/claude-code/update.py)
+          echo "$changes"
+          {
+            echo "added=$(sed -n 's/^+//p' <<<"$changes" | xargs)"
+            echo "removed=$(sed -n 's/^-//p' <<<"$changes" | xargs)"
+          } >> "$GITHUB_OUTPUT"
+      # A push with this workflow's token does not start CI, so check here what CI would:
+      # every added version builds, and the flake still evaluates.
+      - name: Build the added versions
+        if: steps.update.outputs.added != ''
+        run: |
+          set -euo pipefail
+          for version in ${{ steps.update.outputs.added }}; do
+            nix build --no-link --print-build-logs ".#claude-code_${version//./_}"
+          done
+          nix flake check --no-build
+      - name: Commit and push
+        if: steps.update.outputs.added != '' || steps.update.outputs.removed != ''
+        env:
+          ADDED: ${{ steps.update.outputs.added }}
+          REMOVED: ${{ steps.update.outputs.removed }}
+        run: |
+          set -euo pipefail
+          subject="claude-code:"
+          [[ -n $ADDED ]] && subject+=" add ${ADDED// /, }"
+          [[ -n $ADDED && -n $REMOVED ]] && subject+=";"
+          [[ -n $REMOVED ]] && subject+=" drop ${REMOVED// /, }"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit --quiet -m "$subject" packages/claude-code/versions.json
+          git push
