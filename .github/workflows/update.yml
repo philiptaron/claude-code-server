@@ -41,9 +41,11 @@ jobs:
       # every added version builds, and the flake still evaluates.
       - name: Build the added versions
         if: steps.update.outputs.added != ''
+        env:
+          ADDED: ${{ steps.update.outputs.added }}
         run: |
           set -euo pipefail
-          for version in ${{ steps.update.outputs.added }}; do
+          for version in $ADDED; do
             nix build --no-link --print-build-logs ".#claude-code_${version//./_}"
           done
           nix flake check --no-build
