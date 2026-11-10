@@ -18,6 +18,7 @@ use log::{debug, info};
 
 use crate::builder::Builder;
 use crate::catalog::{Catalog, Resolution};
+use crate::version::Version;
 
 /// How long the kernel may cache an answer. Short, so a version finished by the builder
 /// replaces the stand-in quickly.
@@ -109,6 +110,13 @@ impl CliFs {
     }
 }
 
+/// The version to build when `name` has no build: its release. A suffixed name is answered
+/// by the build of its release (see [`Catalog::resolve`]), and releases are what the
+/// builder can find hashes for.
+fn version_to_build(name: &str) -> Option<String> {
+    Some(Version::parse(name)?.release().to_string())
+}
+
 impl Filesystem for CliFs {
     fn lookup(&self, _req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEntry) {
         let resolution = match (parent, name.to_str()) {
@@ -128,8 +136,8 @@ impl Filesystem for CliFs {
                 resolution.target.display(),
                 resolution.version
             );
-            if let Some(builder) = &self.builder {
-                builder.request(name);
+            if let (Some(builder), Some(version)) = (&self.builder, version_to_build(name)) {
+                builder.request(&version);
             }
         }
         let ino = self.inodes.lock().unwrap().get_or_insert(name);
@@ -178,6 +186,14 @@ impl Filesystem for CliFs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn builds_the_release_of_a_name() {
+        assert_eq!(version_to_build("2.1.999").as_deref(), Some("2.1.999"));
+        assert_eq!(version_to_build("2.1.999-abc").as_deref(), Some("2.1.999"));
+        assert_eq!(version_to_build("2.01.0999").as_deref(), Some("2.1.999"));
+        assert_eq!(version_to_build("2.1.999.zst"), None);
+    }
 
     #[test]
     fn inodes_are_stable_per_name() {
