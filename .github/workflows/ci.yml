@@ -9,9 +9,14 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Nothing by default; each job asks for what it needs.
+permissions: {}
+
 jobs:
   check:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read # to check the repository out
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # The module's test is a NixOS VM, which wants KVM.
@@ -34,6 +39,8 @@ jobs:
 
   lint:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read # to check the repository out
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
