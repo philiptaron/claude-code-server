@@ -6,11 +6,13 @@
 //! picks up on the next lookup.
 
 use std::collections::HashMap;
+use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
+use std::{io, mem, ptr};
 
 use log::{info, warn};
 
@@ -48,12 +50,16 @@ impl Builder {
         let version = version.to_owned();
         info!("building {version} with {}", command.display());
         thread::spawn(move || {
-            let status = Command::new(&command)
+            let mut build = Command::new(&command);
+            build
                 .arg(&version)
                 .stdin(Stdio::null())
                 .stdout(Stdio::inherit())
-                .stderr(Stdio::inherit())
-                .status();
+                .stderr(Stdio::inherit());
+            // SAFETY: sigemptyset and pthread_sigmask are async-signal-safe, and the closure
+            // touches nothing but its own stack.
+            unsafe { build.pre_exec(unblock_signals) };
+            let status = build.status();
             let mut builds = builds.lock().unwrap();
             match status {
                 Ok(status) if status.success() => {
@@ -76,6 +82,21 @@ impl Builder {
     #[cfg(test)]
     fn state(&self, version: &str) -> Option<State> {
         self.builds.lock().unwrap().get(version).copied()
+    }
+}
+
+/// Give the builder an empty signal mask. The daemon blocks the termination signals in every
+/// thread (see `block_signals` in main.rs) and a child inherits the mask, so without this
+/// the builder and what it runs could not be stopped with SIGTERM.
+fn unblock_signals() -> io::Result<()> {
+    // SAFETY: the set is initialized by sigemptyset before pthread_sigmask reads it.
+    unsafe {
+        let mut set: libc::sigset_t = mem::zeroed();
+        libc::sigemptyset(&mut set);
+        match libc::pthread_sigmask(libc::SIG_SETMASK, &set, ptr::null_mut()) {
+            0 => Ok(()),
+            errno => Err(io::Error::from_raw_os_error(errno)),
+        }
     }
 }
 
@@ -125,6 +146,27 @@ mod tests {
         assert!(builder.request("1.2.3"));
         assert!(!builder.request("1.2.3"));
         assert_eq!(wait_until_settled(&builder, "1.2.3"), None);
+        std::fs::remove_file(script).unwrap();
+    }
+
+    #[test]
+    fn builder_runs_with_no_signals_blocked() {
+        // Block SIGTERM here, as the daemon does; the builder's thread inherits the mask.
+        // SAFETY: the set is initialized by sigemptyset before use.
+        unsafe {
+            let mut set: libc::sigset_t = mem::zeroed();
+            libc::sigemptyset(&mut set);
+            libc::sigaddset(&mut set, libc::SIGTERM);
+            assert_eq!(libc::pthread_sigmask(libc::SIG_BLOCK, &set, ptr::null_mut()), 0);
+        }
+        // Run as `sh SCRIPT`, the script standing where the version does, so nothing
+        // executes a file that was just written.
+        let script = std::env::temp_dir().join(format!("ccd-cli-fs-mask-{}", std::process::id()));
+        std::fs::write(&script, "grep -q '^SigBlk:[[:space:]]*0*$' /proc/self/status\n").unwrap();
+        let builder = Builder::new("sh".into(), Duration::from_secs(600));
+        let script_name = script.to_str().unwrap();
+        assert!(builder.request(script_name));
+        assert_eq!(wait_until_settled(&builder, script_name), None);
         std::fs::remove_file(script).unwrap();
     }
 }
