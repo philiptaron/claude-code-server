@@ -12,6 +12,8 @@
 let
   pkgs = import nixpkgs {
     inherit system;
+    # Not the user's ~/.config/nixpkgs/overlays, which an impure import reads by default.
+    overlays = [ ];
     config.allowUnfreePredicate = pkg: pkgs.lib.getName pkg == "claude-code";
   };
 in
