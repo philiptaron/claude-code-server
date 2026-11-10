@@ -1,6 +1,7 @@
 # The module on a VM, with stand-in CLIs (the real ones are unfree and large, and the
 # desktop app's server is not packaged): versions resolve, the directory lists as empty
-# and refuses writes, the versions directory is served, and a killed daemon comes back.
+# and refuses writes, the versions directory is served, a killed daemon comes back, and
+# missing versions are built by the template unit, once.
 { self, pkgs }:
 
 let
@@ -13,6 +14,16 @@ let
   old = fakeClaude "2.1.300";
   new = fakeClaude "2.1.322";
   built = fakeClaude "2.1.400";
+  onDemand = fakeClaude "2.1.500";
+  # Logs what it is asked for. 2.1.500 it builds, 2.1.666 fails, and for anything else it
+  # succeeds without leaving a build.
+  fakeBuilder = pkgs.writeShellScriptBin "ccd-cli-fs-builder" ''
+    echo "$1" >> "$HOME/builds.log"
+    case $1 in
+      2.1.500) ln -sfn ${onDemand} "$CCD_CLI_FS_VERSIONS_DIR/$1" ;;
+      2.1.666) exit 1 ;;
+    esac
+  '';
 in
 pkgs.testers.runNixOSTest {
   name = "ccd-cli-fs";
@@ -34,9 +45,12 @@ pkgs.testers.runNixOSTest {
         old
         new
       ];
-      builder.enable = false;
+      builder.package = fakeBuilder;
     };
-    system.extraDependencies = [ built ];
+    system.extraDependencies = [
+      built
+      onDemand
+    ];
   };
   testScript = ''
     def alice(command):
@@ -75,6 +89,25 @@ pkgs.testers.runNixOSTest {
         machine.succeed("systemctl --user -M alice@ kill -s KILL ccd-cli-fs.service")
         machine.wait_until_succeeds("su - alice -c '~/.claude/remote/ccd-cli/2.1.300 --version'")
         check_mount()
+
+    with subtest("a missing version is built by the template unit"):
+        assert alice("~/.claude/remote/ccd-cli/2.1.500 --version") == "2.1.322 (Claude Code)"
+        machine.wait_until_succeeds(
+            "su - alice -c '~/.claude/remote/ccd-cli/2.1.500 --version' | grep -Fx '2.1.500 (Claude Code)'"
+        )
+        alice("rm ~/.local/state/ccd-cli-fs/versions/2.1.500")
+
+    with subtest("a suffixed name builds its release"):
+        alice("readlink ~/.claude/remote/ccd-cli/2.1.501-abc")
+        machine.wait_until_succeeds("grep -Fx 2.1.501 ~alice/builds.log")
+        machine.fail("grep -F 2.1.501-abc ~alice/builds.log")
+
+    with subtest("a build that fails or leaves nothing is not run by every lookup"):
+        for _ in range(4):
+            alice("readlink ~/.claude/remote/ccd-cli/2.1.600 ~/.claude/remote/ccd-cli/2.1.666")
+            machine.sleep(2)
+        assert alice("grep -cFx 2.1.600 ~/builds.log") == "1"
+        assert alice("grep -cFx 2.1.666 ~/builds.log") == "1"
 
     with subtest("other users get nothing"):
         machine.succeed("loginctl enable-linger bob")

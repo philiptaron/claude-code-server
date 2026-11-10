@@ -38,15 +38,15 @@ struct Args {
     #[arg(long, value_name = "DIR")]
     versions_dir: Option<PathBuf>,
 
-    /// A command run as `BUILDER VERSION` in the background when a version is missing; it
-    /// should leave the build in the versions directory
-    #[arg(long, value_name = "BUILDER", requires = "versions_dir")]
-    builder: Option<PathBuf>,
+    /// A systemd user template unit, such as ccd-cli-fs-build@.service, whose instance
+    /// VERSION is started when that version is missing; it should leave the build in the
+    /// versions directory
+    #[arg(long, value_name = "UNIT", requires = "versions_dir")]
+    build_unit: Option<String>,
 
-    /// How long to wait before building a version again after its build finished, whether
-    /// it failed or left nothing that can be served
-    #[arg(long, value_name = "SECONDS", default_value_t = 600)]
-    retry_after: u64,
+    /// The systemctl that starts the build unit
+    #[arg(long, value_name = "PATH", default_value = "systemctl")]
+    systemctl: PathBuf,
 }
 
 fn parse_cli(arg: &str) -> Result<(Version, PathBuf), String> {
@@ -87,7 +87,13 @@ fn run(args: Args) -> io::Result<()> {
         Some(newest) => info!("{} builds, newest {newest}", available.len()),
         None => warn!("no builds: every lookup will fail until one appears"),
     }
-    let builder = args.builder.map(|b| Builder::new(b, Duration::from_secs(args.retry_after)));
+    let builder = match args.build_unit {
+        Some(unit) => Some(
+            Builder::new(args.systemctl, &unit)
+                .ok_or_else(|| io::Error::other(format!("{unit:?} is not a template unit")))?,
+        ),
+        None => None,
+    };
 
     // Signals are taken by a thread of their own (see `unmount_on_signal`), so they must be
     // blocked before any other thread starts, and so inherits the mask.

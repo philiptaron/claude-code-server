@@ -25,7 +25,8 @@ version name finds a symlink to a Nix-built Claude Code:
 - the build of that version, if there is one;
 - for a suffixed name like `2.1.295-…`, the build of `2.1.295`;
 - otherwise the newest build stands in, and a build of the requested version starts in the
-  background. Lookups never wait for it, because the probe has a time limit.
+  background, as the systemd user unit `ccd-cli-fs-build@<version>.service`. Lookups never
+  wait for it, because the probe has a time limit.
 
 The server sees the name exists, so it skips the download, and the probe runs the Nix
 build. Names that are not versions (`.zst` files, lock files) don't exist. The directory
@@ -47,8 +48,13 @@ Builds come from two places:
 
 `ccd-cli-fs-builder VERSION` gets the hash from `versions.json`. For a version newer than
 the flake, which is common because the app tends to be newer than your lock file, it gets
-the hash from the release's `manifest.json` on downloads.claude.ai. A build that failed, or
-that left nothing servable, is not retried for 10 minutes.
+the hash from the release's `manifest.json` on downloads.claude.ai. The unit's start limit
+keeps a build that failed, or that left nothing servable, from being retried for 10 minutes.
+Follow one with `journalctl --user -u 'ccd-cli-fs-build@*'`, or start one yourself:
+
+```
+systemctl --user start ccd-cli-fs-build@2.1.310
+```
 
 ## Use on NixOS
 
@@ -74,6 +80,7 @@ Options:
 - `clis`: which packages to serve without building. The default is the newest 3, about
   330 MiB each.
 - `builder.enable`: whether to build missing versions. Defaults to true.
+- `builder.retryAfter`: seconds before a version is built again. Defaults to 600.
 - `mountPoint`: where to mount.
 
 Watch it with `journalctl --user -u ccd-cli-fs -f`. Each lookup is logged with what

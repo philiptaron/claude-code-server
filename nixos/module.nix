@@ -18,6 +18,7 @@ let
   newestFirst = lib.sort (a: b: lib.versionOlder b a) (lib.attrNames versions);
   fusermount = "${config.security.wrapperDir}/fusermount3";
   versionsDir = "%S/ccd-cli-fs/versions";
+  buildUnit = "ccd-cli-fs-build@";
 in
 {
   options.services.ccd-cli-fs = {
@@ -63,14 +64,23 @@ in
           Whether to build a version the desktop app asks for that is not in
           {option}`services.ccd-cli-fs.clis`, in the background, with Nix. Builds are kept
           as GC roots in ~/.local/state/ccd-cli-fs/versions; delete an entry there to let
-          it be collected.
+          it be collected. Each build is an instance of the user unit
+          `ccd-cli-fs-build@VERSION.service`, which can be started by hand too.
+        '';
+      };
+      retryAfter = mkOption {
+        type = types.ints.positive;
+        default = 600;
+        description = ''
+          How many seconds to wait before building a version again after a build of it
+          started, when that build failed or left nothing that can be served.
         '';
       };
       package = mkOption {
         type = types.package;
         default = flakePackages.ccd-cli-fs-builder;
         defaultText = lib.literalExpression "claude-code-server.packages.\${system}.ccd-cli-fs-builder";
-        description = "The command ccd-cli-fs runs as `BUILDER VERSION`.";
+        description = "The command the build unit runs as `BUILDER VERSION`.";
       };
     };
 
@@ -92,10 +102,7 @@ in
       wantedBy = [ "default.target" ];
       # Only for the chosen users: any one of these triggering conditions starts it.
       unitConfig.ConditionUser = map (user: "|${user}") cfg.users;
-      environment = {
-        FUSERMOUNT_PATH = fusermount;
-        CCD_CLI_FS_VERSIONS_DIR = versionsDir;
-      };
+      environment.FUSERMOUNT_PATH = fusermount;
       serviceConfig = {
         Type = "exec";
         StateDirectory = "ccd-cli-fs";
@@ -113,14 +120,39 @@ in
             versionsDir
           ]
           ++ lib.optionals cfg.builder.enable [
-            "--builder"
-            (lib.getExe cfg.builder.package)
+            "--build-unit"
+            "${buildUnit}.service"
+            "--systemctl"
+            "${config.systemd.package}/bin/systemctl"
           ]
           ++ map (cli: "--cli ${cli.version}=${lib.getExe cli}") cfg.clis
           ++ [ cfg.mountPoint ]
         );
         Restart = "always";
         RestartSec = 1;
+      };
+    };
+
+    # ccd-cli-fs starts the instance VERSION when a lookup finds that version missing, as
+    # often as it is looked up. systemd runs one build of a version at a time, and the
+    # start limit keeps one that failed from being run again by every lookup; a build that
+    # worked is not asked for again.
+    systemd.user.services.${buildUnit} = lib.mkIf cfg.builder.enable {
+      description = "Build Claude Code %i for ccd-cli-fs";
+      unitConfig = {
+        StartLimitBurst = 1;
+        StartLimitIntervalSec = cfg.builder.retryAfter;
+      };
+      environment.CCD_CLI_FS_VERSIONS_DIR = versionsDir;
+      serviceConfig = {
+        Type = "oneshot";
+        StateDirectory = "ccd-cli-fs";
+        UMask = "0077";
+        ExecStart = "${lib.getExe cfg.builder.package} %i";
+        # A builder that leaves nothing has failed. systemd forgets the start limit of a
+        # unit that ended well, so calling that a success would run it on every lookup.
+        ExecStartPost = "${pkgs.coreutils}/bin/test -e ${versionsDir}/%i";
+        TimeoutStartSec = "30min";
       };
     };
   };

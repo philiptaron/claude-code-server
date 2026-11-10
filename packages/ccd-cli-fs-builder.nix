@@ -1,4 +1,5 @@
-# The command ccd-cli-fs runs as `ccd-cli-fs-builder VERSION` when a version is missing. It
+# The command run as `ccd-cli-fs-builder VERSION` when a version is missing, by the unit
+# ccd-cli-fs-build@VERSION.service that ccd-cli-fs starts (see nixos/module.nix). It
 # builds that Claude Code with Nix and leaves the out-link VERSION in
 # $CCD_CLI_FS_VERSIONS_DIR, where ccd-cli-fs finds it on the next lookup. The hash comes
 # from versions.json when the version is there, else from the release's manifest.json.
