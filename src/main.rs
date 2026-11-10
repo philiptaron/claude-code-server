@@ -76,7 +76,8 @@ fn run(args: Args) -> io::Result<()> {
     let mut clis = BTreeMap::new();
     for (version, path) in args.clis {
         if !path.exists() {
-            warn!("{version}: {} does not exist", path.display());
+            warn!("{version}: {} does not exist, ignoring it", path.display());
+            continue;
         }
         clis.insert(version, path);
     }
