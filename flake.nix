@@ -65,6 +65,8 @@
         inherit (pkgs) claude-code-versions;
       });
 
+      nixosModules.default = import ./nixos/module.nix { inherit self; };
+
       devShells = eachSystem linuxSystems (pkgs: {
         default = pkgs.mkShell {
           inputsFrom = [ pkgs.ccd-cli-fs ];
