@@ -53,6 +53,8 @@ pkgs.testers.runNixOSTest {
     ];
   };
   testScript = ''
+    import datetime
+
     def alice(command):
         return machine.succeed(f"su - alice -c {command!r}").strip()
 
@@ -105,7 +107,7 @@ pkgs.testers.runNixOSTest {
     with subtest("a build that fails or leaves nothing is not run by every lookup"):
         for _ in range(4):
             alice("readlink ~/.claude/remote/ccd-cli/2.1.600 ~/.claude/remote/ccd-cli/2.1.666")
-            machine.sleep(2)
+            machine.sleep(duration=datetime.timedelta(seconds=2))
         assert alice("grep -cFx 2.1.600 ~/builds.log") == "1"
         assert alice("grep -cFx 2.1.666 ~/builds.log") == "1"
 
