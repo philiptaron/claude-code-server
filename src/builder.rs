@@ -162,15 +162,11 @@ mod tests {
 
     #[test]
     fn running_build_is_not_repeated() {
-        use std::os::unix::fs::PermissionsExt;
-        let script = std::env::temp_dir().join(format!("ccd-cli-fs-slow-{}", std::process::id()));
-        std::fs::write(&script, "#!/bin/sh\nsleep 2\n").unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let builder = Builder::new(script.clone(), Duration::ZERO);
-        assert!(builder.request("1.2.3"));
-        assert!(!builder.request("1.2.3"));
-        assert!(succeeded(wait_until_settled(&builder, "1.2.3")));
-        std::fs::remove_file(script).unwrap();
+        // `sleep 2`, the duration standing where the version does.
+        let builder = Builder::new("sleep".into(), Duration::ZERO);
+        assert!(builder.request("2"));
+        assert!(!builder.request("2"));
+        assert!(succeeded(wait_until_settled(&builder, "2")));
     }
 
     #[test]
