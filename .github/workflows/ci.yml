@@ -14,6 +14,7 @@ permissions: {}
 
 jobs:
   check:
+    name: Flake check and newest Claude Code
     runs-on: ubuntu-latest
     permissions:
       contents: read # to check the repository out
@@ -40,6 +41,7 @@ jobs:
         run: nix build .#claude-code --print-build-logs
 
   lint:
+    name: Lint
     runs-on: ubuntu-latest
     permissions:
       contents: read # to check the repository out

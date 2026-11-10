@@ -16,6 +16,7 @@ permissions: {}
 
 jobs:
   update:
+    name: Update versions.json
     runs-on: ubuntu-latest
     permissions:
       contents: write # to push versions.json
